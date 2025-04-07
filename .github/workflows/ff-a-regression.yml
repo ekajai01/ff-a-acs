@@ -1,0 +1,52 @@
+name: FF-A Regression
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      BINARY_BUILD: ${{ steps.set.outputs.BINARY_BUILD }}
+      TEST_EXECUTION: ${{ steps.set.outputs.TEST_EXECUTION }}
+      EXCEPTION_LEVELS: ${{ steps.set.outputs.EXCEPTION_LEVELS }}
+    steps:
+      - name: 'Checkout FF-A ACS'
+        uses: actions/checkout@v4
+
+      - name: 'Load environment variables from .env file'
+        id: set
+        run: |
+          set -a
+          source ./.github/.env
+          set +a
+          echo "BINARY_BUILD=$BINARY_BUILD" >> "$GITHUB_OUTPUT"
+          echo "TEST_EXECUTION=$TEST_EXECUTION" >> "$GITHUB_OUTPUT"
+          json_levels=$(jq -c -n --arg levels "$EXCEPTION_LEVELS" '$levels | split(" ")')
+          echo "EXCEPTION_LEVELS=$json_levels" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: setup
+    if: needs.setup.outputs.BINARY_BUILD == 'true'
+    strategy:
+      matrix:
+        level: ${{ fromJson(needs.setup.outputs.EXCEPTION_LEVELS) }}
+    uses: ./.github/workflows/perform_build.yml
+    with:
+      level: ${{ matrix.level }}
+
+  test_execution:
+    needs: [setup, build]
+    if: needs.setup.outputs.TEST_EXECUTION == 'true'
+    strategy:
+      matrix:
+        level: ${{ fromJson(needs.setup.outputs.EXCEPTION_LEVELS) }}
+    uses: ./.github/workflows/perform_test_execution.yml
+    with:
+      level: ${{ matrix.level }}

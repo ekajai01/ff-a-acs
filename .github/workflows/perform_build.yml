@@ -1,0 +1,70 @@
+name: FF-A ACS Build
+
+on:
+  workflow_call:
+    inputs:
+      level:
+        required: true
+        type: string
+
+jobs:
+  build_binary:
+    name: FF-A ACS Build
+    runs-on: ubuntu-latest
+    steps:
+      - name: 'Checkout FF-A ACS'
+        uses: actions/checkout@v4
+
+      - name: 'Download Pre-requisites'
+        run: |
+          sudo apt-get update && sudo apt-get install -y cmake python-is-python3
+          mkdir -p /opt/cross
+          cd /opt/cross
+          wget https://developer.arm.com/-/media/Files/downloads/gnu-a/10.3-2021.07/binrel/gcc-arm-10.3-2021.07-x86_64-aarch64-none-elf.tar.xz
+          tar -xf gcc-arm-10.3-2021.07-x86_64-aarch64-none-elf.tar.xz
+          echo "CROSS_COMPILE=/opt/cross/gcc-arm-10.3-2021.07-x86_64-aarch64-none-elf/bin/aarch64-none-elf-" >> ${GITHUB_ENV}
+
+      - name: 'Load environment variables from .env file'
+        run: |
+          set -a
+          source ./.github/.env
+          set +a
+
+      - name: 'Set environment variables for ${{ inputs.level }}'
+        run: |
+          case "${{ inputs.level }}" in
+            EL0)
+              echo "SP_EL=0" >> $GITHUB_ENV
+              ;;
+            EL1)
+              echo "SP_EL=1" >> $GITHUB_ENV
+              ;;
+            *)
+              echo "SP_EL=-1" >> $GITHUB_ENV
+              ;;
+          esac
+
+      - name: 'Build PSA-A ACS for tgt_tfa_fvp reference platform'
+        run: |
+          mkdir -p build
+          cd build
+          cmake ../ -G"Unix Makefiles" \
+          -DCROSS_COMPILE=$CROSS_COMPILE \
+          -DTARGET=tgt_tfa_fvp \
+          -DPLATFORM_FFA_V_1_0=0 \
+          -DPLATFORM_FFA_V_1_1=0 \
+          -DPLATFORM_FFA_V_ALL=1 \
+          -DPLATFORM_NS_HYPERVISOR_PRESENT=0 \
+          -DPLATFORM_SP_EL=$SP_EL \
+          -DENABLE_BTI=ON \
+          -DCMAKE_BUILD_TYPE=Debug \
+          -DSUITE=all \
+          -DSUITE_TEST_RANGE=all
+          make -j16
+
+      - name: 'Store Build outputs as artifact'
+        uses: actions/upload-artifact@v4
+        with:
+          name: build_output_${{ inputs.level }}
+          path: build/output
+          if-no-files-found: error
